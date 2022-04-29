@@ -1,0 +1,14 @@
+# Summary
+
+* During our experiments, we found 75 new solutions (previously unknown) whose
+  objective value match that of the currently best known solution.
+
+* We managed to find 8 instances improving the best known solution of TSPTW  
+  instances in two datasets using our DD-LNS method. Our CP model is also
+  highly efficient as it managed to improve the best known solution of 10 
+  TSPTW instances in one benchmark suit.
+
+* We found out that the currently best known solution of one instance is 
+  actually infeasible for the TSPTW, and we propose a new solution whose 
+  objective score is somewhat close tho that of the infeasible solution 
+  (957 vs 917).

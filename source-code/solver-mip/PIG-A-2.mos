@@ -1,0 +1,170 @@
+!--------------------------------------------
+! model PIG-A-2 :
+!      Pigment Sequencing
+!      Section 14.4: initial (weak) formulation
+!                  + unit-flow reformulation for changeovers
+!
+! Y. Pochet and L. Wolsey
+! Production Planning by Mixed Integer Programming
+! March 2006
+!--------------------------------------------
+
+model 'PIG-A-2'
+
+! Table 14.12 in PPbyMIP
+uses 'mmetc','mmxprs','mmsystem';
+
+parameters
+FOLDER = 'instancesMIP\5items\'
+instance = '1'
+TIMELIMIT = 1800
+end-parameters
+
+setparam('XPRS_VERBOSE',0)
+setparam('XPRS_colorder',1)
+
+declarations
+  status:array({XPRS_OPT,XPRS_UNF,XPRS_INF,XPRS_UNB,XPRS_OTH}) of string
+end-declarations
+status::([XPRS_OPT,XPRS_UNF,XPRS_INF,XPRS_UNB,XPRS_OTH])["Optimum found","Unfinished","Infeasible","Unbounded","Failed"]
+
+
+declarations
+info: array (1..3) of integer
+NI: integer
+NT: integer
+end-declarations
+
+diskdata(ETC_IN, FOLDER + instance + 'i.dat',info)
+NT := info(1)
+NI := info(2)
+
+declarations
+DEM: array (1..NI,1..NT) of real! Demand
+dd: array (1..NI,1..NT) of real
+g: array (1..NI) of real! Start-up costs
+h: array (1..NI) of real! Storage costs
+CAP: array (1..NT) of real
+q: array (1..NI,1..NI) of real
+end-declarations
+
+diskdata(ETC_IN, FOLDER + instance + 'q.dat', q)
+diskdata(ETC_IN, FOLDER + instance + 'd.dat', DEM)
+diskdata(ETC_IN, FOLDER + instance + 'h.dat', h)
+
+!--------------------------------------------------------------------
+
+declarations
+ ti: real
+ ttb: real
+ tdiff: real
+end-declarations
+ti := gettime
+
+declarations
+totdem: array (1..NI) of real
+end-declarations
+
+forall(i in 1..NI)
+  totdem(i):=sum(t in 1..NT)DEM(i,t)
+forall(t in 1..NT)
+  CAP(t):=1
+  !forall(i in 1..NI)
+  !writeln("item ",i,"total demand = ",totdem(i))
+ alldem:= sum(i in 1..NI)totdem(i)
+  !writeln("total demand = ",alldem)
+
+declarations
+ y: dynamic array(1..NI,1..NT) of mpvar
+end-declarations
+ forall(i in 1..NI,t in 1..NT| totdem(i)> 0)
+   create(y(i,t))                            ! Set-up
+declarations
+ z: dynamic array(1..NI,2..NT) of mpvar
+end-declarations
+ forall(i in 1..NI,t in 2..NT| totdem(i)> 0)
+   create(z(i,t))                           ! Start-up
+declarations
+ w: dynamic array(1..NI,1..NT-1) of mpvar
+end-declarations
+ forall(i in 1..NI,t in 1..NT-1| totdem(i)> 0)
+   create(w(i,t))
+declarations
+ ch: dynamic array(1..NI,1..NI,1..NT) of mpvar
+end-declarations
+ forall(i in 1..NI,j in 1..NI,t in 1..NT| totdem(i)> 0 and totdem(j)> 0 and
+  t> 1 or i=j)
+   create(ch(i,j,t))
+declarations
+ s: dynamic array(1..NI,1..NT) of mpvar
+end-declarations
+ forall(i in 1..NI,t in 1..NT| totdem(i)> 0)
+   create(s(i,t))                      ! Stock level of product
+declarations
+ x: dynamic array(1..NI,1..NT) of mpvar
+end-declarations
+ forall(i in 1..NI,t in 1..NT| totdem(i)> 0)
+   create(x(i,t))
+
+objmin:= SUM(i in 1..NI,t in 1..NT) h(i) * s(i,t) +
+          SUM(i in 1..NI,j in 1..NI,t in 1..NT| i<> j) q(i,j) * ch(i,j,t)
+! Inventory Balance
+forall(j in 1..NI,t in 1..NT| totdem(j)> 0)
+  Bal(j,t):= IF(t> 1,s(j,t-1),0) + x(j,t) -
+DEM(j,t) = s(j,t)
+forall(i in 1..NI,t in 1..NT| totdem(i)> 0)
+  Vub(i,t):= x(i,t)<=CAP(t)*y(i,t)
+
+!forall(i in 1..NI,k in 1..NK,t in 2..NT| totdem(i)> 0)
+!  zVub(i,k,t):= z(i,k,t)<=x(i,k,t)
+
+
+forall( t in 1..NT)
+add(t):= sum(i in 1..NI)y(i,t)=1
+
+
+! Switch-overs
+forall(j in 1..NI,t in 2..NT)
+  ST(j,t):= SUM(i in 1..NI|i<> j)ch(i,j,t)=z(j,t)
+forall(i in 1..NI,t in 2..NT)
+  TT(i,t):= SUM(j in 1..NI|j<> i)ch(i,j,t)=w(i,t-1)
+forall(i in 1..NI,t in 2..NT)
+  STA(i,t):= z(i,t) +ch(i,i,t) = y(i,t)
+forall(i in 1..NI,t in 2..NT)
+  STB(i,t):= w(i,t-1)+y(i,t)-z(i,t)=y(i,t-1)
+
+
+
+forall(j in 1..NI,t in 1..NT| totdem(j)> 0)
+  y(j,t) is_binary
+forall(j in 1..NI,t in 2..NT| totdem(j)> 0)
+  z(j,t) is_binary
+!----------------------------------------------
+
+
+!------------------------------------------
+!)
+forall(j in 1..NI,t in 2..NT| totdem(j)> 0)
+  setmipdir(z(j,t),XPRS_PR, 1)
+
+setparam("XPRS_MAXTIME", TIMELIMIT)
+!setparam("XPRS_CUTSTRATEGY",3)
+!setparam("XPRS_GOMCUTS",5)
+
+ !-- --- ---
+ setcallback(XPRS_CB_INTSOL, "besttime")
+
+ minimize(objmin)
+
+ ! Keep track of the time to find the optimal best solution
+ public procedure besttime
+	ttb := gettime-ti
+	!writeln( getparam("XPRS_MIPBESTOBJVAL"), " -- ", ttb )
+ end-procedure
+
+ tdiff := gettime-ti
+ !-- INSTANCE | STATUS | UB | LB | BEST | DURATION | MEM 
+ writeln(FOLDER+instance, " | ", status(getprobstat), " | ", getparam("XPRS_MIPBESTOBJVAL"), " | ", getparam("XPRS_BESTBOUND"), " | ", ttb, " | ", tdiff, " | ", memoryuse / 1073741824.0)
+
+
+end-model

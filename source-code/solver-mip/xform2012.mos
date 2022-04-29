@@ -1,0 +1,903 @@
+
+!package lslib2010p
+
+!---------------------------------------------------------
+
+
+!-------------------------------------------------------------
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  All Book Extended Formulations                                !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!  Xform  9/9/2005
+!  Contains
+!	WW-U
+!   WW-U-B
+!	WW-U-SC
+!	WW-U-SC,B
+!	WW-CC
+
+!	LS-U1=(MC)
+!	LS-U2=(SP)
+!	LS-U-B
+
+!Added 30/9/2005
+! 	DLSI-CC
+! 	DLSI-CC-B
+! 	DLS-CC-B
+!	DLS-CC-SC
+
+! Added 30/9/05 (not in Xformsimple)
+! 	WW-U-LB
+!	WW-CC-B
+
+!Missing 24/7/07
+!   LS-U-SC
+
+! Added 16/12/09
+ ! LT  Lasdon-Terjung
+ ! DLS-CC-SC-U with integer (not just 0-1 demands)
+
+
+
+procedure CumulDemand(
+	d : array (range) of real,
+	D : array (range,range) of real,
+        NT : integer)
+    forall (k in 1..NT) D(k,k):=d(k)
+    forall (k in 1..NT,l in k+1..NT) D(k,l):=D(k,l-1)+d(l)
+    forall (k in 1..NT,l in 1..k-1) D(k,l):=0
+end-procedure
+
+procedure iCumulDemand(
+	d : array (range) of integer,
+	D : array (range,range) of integer,
+        NT : integer)
+    forall (k in 1..NT) D(k,k):=d(k)
+    forall (k in 1..NT,l in k+1..NT) D(k,l):=D(k,l-1)+d(l)
+    forall (k in 1..NT,l in 1..k-1) D(k,l):=0
+end-procedure
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  Approximate extended formulations         !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Multi-commodity for LS-U   !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+procedure XFormLSU1(
+    s : array (range) of linctr,
+    x : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        MUC,YC: array (1..NT,range) of linctr
+        XC,SC: array (1..NT) of linctr
+        xx:dynamic array (1..NT,1..NT) of mpvar
+        xs:dynamic array (0..NT-1,1..NT) of mpvar
+    end-declarations
+    
+    forall(k in 1..NT,t in maxlist(1,k-Tk+1)..k) create(xx(t,k))
+    forall(k in 1..NT,t in maxlist(1,k-Tk+1)..k) create(xs(t-1,k))
+
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k)
+    	MUC(t,k):=xx(t,k)+xs(t-1,k)=if(t=k,d(t),xs(t,k))
+    forall (t in 1..NT) XC(t):=x(t)>=sum(k in t..NT) xx(t,k)
+    forall (t in 1..NT) SC(t):=s(t-1)>=sum(k in t..NT) xs(t-1,k)
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k)
+    	YC(t,k):=d(k)*y(t)>=xx(t,k)
+    if MC=1 then
+    	forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k)
+    	setmodcut(YC(t,k))
+    end-if
+end-procedure
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! shortest path for LS-U     !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+procedure XFormLSU2(
+    s : array (range) of linctr,
+    x : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        X,Y: array (1..NT) of linctr
+        SP1,SP2: array (0..NT+1) of linctr
+        S: array (0..NT-1) of linctr
+        u:dynamic array (0..NT,0..NT) of mpvar
+        v1,v2,w:dynamic array (0..NT) of mpvar
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+    forall(t in 1..NT-Tk+1) create(w(t))
+    forall(t in 0..NT-Tk+1) create(v1(t))
+    forall(t in Tk-1..NT) create(v2(t))
+    forall(i in 0..NT, j in i..minlist(i+Tk-2,NT)) create(u(i,j))
+
+    forall (t in 0..NT+1)
+    	SP1(t):=if(t>=1,sum(i in 0..t-1) u(i,t-1)+v2(t-1),1)=if (t<=NT,sum(i in t..NT) u(t,i)+v1(t),1)
+    forall (t in 1..NT-Tk+2)
+    	SP2(t):= v1(t-1)+if(t>1,w(t-1),0)=if(t<NT-Tk+2,w(t),0)+v2(t+Tk-2)
+    forall (t in 1..NT) X(t):=x(t)>=sum(i in t..NT) D(t,i)*u(t,i)+D(t,t+Tk-1)*v1(t)
+    forall (t in 1..NT) Y(t):=y(t)>=sum(i in t..NT|D(t,i)>0) u(t,i)+if(D(t,t+Tk-1)>0,v1(t),0)
+    forall (t in 0..NT-1) S(t):=s(t)>=sum(i in 0..t,j in t+1..NT) D(t+1,j)*u(i,j)+
+                                            if(t<=NT-Tk,D(t+1,t+Tk)*w(t+1),0)+
+                                            sum(i in t+1..minlist(NT,t+Tk-1))D(t+1,i)*v2(i)
+! Ignore the value of MC
+
+end-procedure
+
+!!!!!!!!
+! LS-U !
+!!!!!!!!
+procedure XFormLSU(
+    s : array (range) of linctr,
+    x : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+ XFormLSU1(s,x,y,d,NT,Tk,MC)
+end-procedure
+
+!!!!!!!!!!!!!!!!! Multi-commodity for LS-U-B !!!!!!!!!!!!!!!!!!!
+
+procedure XFormLSUBMC(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    x : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        QC,Y: array (1..NT,range) of linctr
+        X: array (1..NT) of linctr
+        S,R: array (0..NT) of linctr
+        xx:dynamic array (1..NT,1..NT) of mpvar
+        xs,xr:dynamic array (0..NT,1..NT) of mpvar
+    end-declarations
+    
+    forall(k in 1..NT,t in maxlist(1,k-Tk+1)..minlist(NT,k+Tk-1)) create(xx(t,k))
+    forall(k in 1..NT,t in maxlist(1,k-Tk+1)..k) create(xs(t-1,k))
+    forall(k in 1..NT,t in k..minlist(NT,k+Tk-1)) create(xr(t,k))
+
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k-1)
+    	QC(t,k):=xx(t,k)+xs(t-1,k)=xs(t,k)
+    forall (k in 1..NT,t in k+1..minlist(NT,k+Tk-1))
+    	QC(t,k):=xx(t,k)+xr(t,k)=xr(t-1,k)
+    forall (k in 1..NT)
+        QC(k,k):=xx(k,k)+xs(k-1,k)+xr(k,k)=d(k)
+    forall (t in 1..NT) X(t):=x(t)>=sum(k in 1..NT) xx(t,k)
+    forall (t in 0..NT) S(t):=s(t)>=sum(k in t+1..NT) xs(t,k)
+    forall (t in 0..NT) R(t):=r(t)>=sum(k in 1..t) xr(t,k)
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..minlist(NT,k+Tk-1))
+    	Y(t,k):=d(k)*y(t)>=xx(t,k)
+end-procedure
+
+
+
+
+
+!!!!!!!!!!!!!!!!! LS-U-B !!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormLSUB(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    x : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+ XFormLSUBMC(s,r,x,y,d,NT,Tk,MC)
+
+end-procedure
+
+
+
+!----------------------------------------------------------
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Basic Wagner-Whitin        !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+procedure XFormWWU(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+
+    declarations
+        XWW: array (1..NT,range) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+    forall (k in 1..NT,l in k..minlist(NT,k+Tk-1)| D(l,l)>0)
+    	XWW(k,l):=s(k-1) >= D(k,l) - sum (i in k..l) D(i,l)*y(i)
+    if MC = 1 then
+    forall (k in 1..NT,l in k..minlist(NT,k+Tk-1)| D(l,l)>0)
+    	setmodcut(XWW(k,l))
+    end-if
+end-procedure
+
+procedure CumulDemand3(dn : array (range) of real,
+	d : array (range) of real,
+	D : array (range,range) of real,
+	si : array (range) of real,
+    NT : integer,
+    s0: real)
+    forall (k in 1..NT) D(k,k):=d(k)
+    forall (k in 1..NT,l in k+1..NT) D(k,l):=D(k,l-1)+d(l)
+    forall (k in 1..NT,l in 1..k-1) D(k,l):=0
+    si(0):= s0
+    forall (k in 1..NT) si(k):=maxlist(-D(1,k)+s0,0)
+    forall (k in 1..NT) D(1,k):=maxlist(D(1,k)-s0,0)
+    dn(1):=D(1,1)
+    forall (k in 2..NT) dn(k):=D(1,k)-D(1,k-1)
+end-procedure
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin and Backlogging !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormWWUB(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        a,b: array(1..NT) of mpvar
+        XA,XB:array(1..NT,1..NT) of linctr
+        XY:array(1..NT) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+    
+    forall (t in 1..NT) XY(t):=a(t)+b(t)+y(t)>=1
+
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1) | D(t,t)>0)
+    	XA(k,t):=s(k-1) >= sum(i in k..t) D(i,i)*a(i) - sum (i in k..t-1) D(i+1,t)*y(i)
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k | D(t,t)>0)
+    	XB(k,t):=r(k) >= sum(i in t..k) D(i,i)*b(i) - sum (i in t+1..k) D(t,i-1)*y(i)
+    if MC=1 then
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1)| D(t,t)>0) setmodcut(XA(k,t))
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k | D(t,t)>0) setmodcut(XB(k,t))
+    end-if
+end-procedure
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin and Start-up !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormWWUSC(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    z : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+
+    declarations
+        XWW: array (1..NT,range) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+   
+    forall (k in 1..NT,l in k..minlist(NT,k+Tk-1)| D(l,l)>0 )
+    	XWW(k,l):=s(k-1) >= D(k,l) - D(k,l)*y(k) - sum (i in k+1..l) D(i,l)*z(i)
+
+    if MC = 1 then
+	  forall (k in 1..NT,l in k..minlist(NT,k+Tk-1)| D(l,l)>0 )
+	  setmodcut(XWW(k,l))
+    end-if
+end-procedure
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin, Backlogging and Start-up !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormWWUSCB(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    z : array (range) of linctr,
+    w : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+
+    declarations
+        a,b: array(1..NT) of mpvar
+        XA,XB:array(1..NT,1..NT) of linctr
+        XY:array(1..NT) of linctr
+    end-declarations
+ 
+! Modification 9/2/04 to be checked
+    !forall (t in 1..NT) XY(t):=a(t)+b(t)+y(t)>=1
+    forall (t in 1..NT | d(t) > 0) XY(t):=a(t)+b(t)+y(t)>=1
+    
+    
+    ! modification  9/2/04
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1)| d(t) > 0)
+    	!XA(k,t):=s(k-1) >= sum(l in k..t) d(l)*(a(l) - sum(i in k+1..l) w(i))
+    	! 2nd modification 12/12/07. No
+    	XA(k,t):=s(k-1) >= sum(l in k..t) d(l)*(a(l) - sum(i in k..l-1) w(i))
+      !XA(k,t):=s(k-1) >= sum(l in k..t) d(l)*(a(l) -if(l>k,y(k),0)- if(l>k+1,sum(i in k+1..l-1) z(i),0))
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k | d(t) > 0)
+    	XB(k,t):=r(k) >= sum(l in t..k) d(l)*(b(l) - sum (i in l+1..k) z(i))
+     if MC=1 then
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1)| d(t) > 0) setmodcut(XA(k,t))
+    forall (k in 1..NT,t in maxlist(1,k-Tk+1)..k | d(t) > 0) setmodcut(XB(k,t))
+    end-if
+end-procedure
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin, Constant Capacity        !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+procedure XFormWWCC(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    C : real,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+
+    declarations
+        ws: array(0..NT-1,range) of mpvar
+        gs: array(0..NT-1,range) of real
+        ds: array(0..NT-1) of mpvar
+        XS,XW:array (1..NT) of linctr
+        XKT:array (1..NT,1..NT) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+    
+
+    forall(k in 1..NT,t in k..minlist(NT,k+Tk-1)) create(ws(k-1,t))
+
+    forall(k in 1..NT,t in k..minlist(NT,k+Tk-1)) do
+        gs(k-1,t):=D(k,t)-C*floor(D(k,t)/C)
+    end-do
+
+    forall(k in 1..NT) XS(k):=s(k-1)>=C*ds(k-1)+sum(i in k..minlist(NT,k+Tk-1))gs(k-1,i)*ws(k-1,i)
+    forall(k in 1..NT) XW(k):=sum(i in k..minlist(NT,k+Tk-1)) ws(k-1,i)<=1
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1))
+        XKT(k,t):= ds(k-1)+sum(i in k..t)y(i)+
+                   sum(i in k..minlist(NT,k+Tk-1)|gs(k-1,i)>=gs(k-1,t))ws(k-1,i) >=
+                   floor(D(k,t)/C)+1
+    if MC=1 then
+    forall (k in 1..NT,t in k..minlist(NT,k+Tk-1)) setmodcut(XKT(k,t))
+    end-if
+
+end-procedure
+
+!--------------------------------------------------------
+procedure CumulDemand0(
+	d : array (range) of real,
+	D : array (range) of real,
+        NT : integer)
+    D(1):=d(1)
+    forall (l in 2..NT) D(l):=D(l-1)+d(l)
+end-procedure
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Discrete, Constant Capacity, Backlogging        !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormDLSCCB(
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    C : real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+       
+        eta: array(1..NT) of integer
+        rr: array(1..NT) of real
+        Aee:array (1..NT) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+
+    !writeln("Reformulation DLS-CC-B: Tk = ",Tk," MC = ",MC)
+
+    forall(t in 1..NT) do
+        eta(t):= ceil(D(1,t)/C)
+        rr(t):= D(1,t)-C*floor(D(1,t)/C)
+    end-do
+
+    if(Tk>0) then
+      forall(t in 1..Tk| D(1,t)>0 and rr(t)<> 0) 
+      Aee(t):= r(t) +SUM(v in 1..t)rr(t)*y(v)>= rr(t)*eta(t)
+    end-if
+    
+    if (MC >0 and Tk > 0) then
+	forall(t in 1..Tk| D(1,t)>0 and rr(t)<> 0)  
+	setmodcut(Aee(t))
+end-if
+end-procedure
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Basic DLS-CC=1-SC(Wagner-Whitin)  NO Initial Stocks      !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+procedure XFormDLSCCSC(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    z : array (range) of linctr,
+    d : array (range) of real,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+! Modification 4-10-2009
+!Valid for more general integer demands
+!Need to have demands in 0,1
+
+    declarations
+        XWW: array (1..NT,range) of linctr
+        D : array (range,range) of real
+        ! Added 2/10/05
+        BA: array(range,range,range) of linctr  
+    end-declarations
+
+    CumulDemand(d,D,NT)
+    
+     !writeln("Reformulation DLS-CC-1-SC: Tk = ",Tk," MC = ",MC)
+ ! Changed 4-10-2009     
+ !forall(t in 1..NT,l in t..NT,p1 in 1..Tk|
+!	t>= l-Tk and d(l)>0 and floor(D(t,l))= p1 and t<= NT+1-p1) 
+forall(t in 1..NT,l in t..NT,p1 in 1..minlist(Tk,l-t)|
+	t>= l-Tk and d(l)>0 and floor(D(t,l))= p1 and t<= NT+1-p1)    
+  BA(t,l,p1):=
+   IF(t> 1,s(t-1),0)>= D(t,l)-
+                   SUM(u in t..t+p1-1)y(u) -
+        SUM(u in t+1..t+p1-1)(D(u,l)-p1+u-t)*z(u) -
+        SUM(u in t+p1..l|t+p1<= l)(D(u,l))*z(u)
+ 
+ if MC >0 then
+forall(t in 1..NT,l in t..NT,p1 in 1..Tk|
+	t>= l-Tk and d(l)>0 and floor(D(t,l))= p1 and t<= NT+1-p1) 
+	setmodcut(BA(t,l,p1))
+end-if
+
+end-procedure
+
+
+
+procedure XFormDLSICC(
+    s : linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    C : real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        ws: array(range) of mpvar
+        gs: array(range) of real
+        ds: mpvar
+        XS,XW: linctr
+        XKT:array (1..NT) of linctr
+        D : array (range) of real
+    end-declarations
+
+    CumulDemand0(d,D,NT)
+
+    forall(t in 1..minlist(NT,Tk)) create(ws(t))
+
+    forall(t in 1..minlist(NT,Tk)) do
+        gs(t):=D(t)-C*floor(D(t)/C)
+    end-do
+
+    XS:=s>=C*ds+sum(i in 1..minlist(NT,Tk))gs(i)*ws(i)
+    XW:=sum(i in 1..minlist(NT,Tk)) ws(i)<=1
+    forall (t in 1..minlist(NT,Tk))
+        XKT(t):= ds+sum(i in 1..t)y(i)+
+                   sum(i in 1..minlist(NT,Tk)|gs(i)>=gs(t))ws(i) >=
+                   ceil(D(t)/C)
+end-procedure
+
+!!!!!!!!!! DLSI-CC-B !!!!!!!!!!!!!!!!!!!!
+!
+procedure XFormDLSICCB(
+    s : linctr,
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    C : real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+    
+    declarations
+    Tkk: integer
+    end-declarations
+    Tkk:=minlist(NT,Tk)
+    
+ 
+    declarations
+        a: array(0..Tkk) of mpvar
+        z: array(0..Tkk) of linctr
+        f: array(0..Tkk,0..Tkk) of real
+        X1,X2:array(0..Tkk,0..Tkk) of linctr
+        X3,X4:array(1..Tkk) of linctr
+        D : array (1..Tkk) of real
+    end-declarations
+    
+    CumulDemand0(d,D,Tkk)
+    f(0,0):=0
+    forall(j in 1..Tkk) f(j,0):=D(j)/C-floor(D(j)/C)
+    forall(j in 1..Tkk,l in 0..Tkk|j<>l) f(j,l):=f(j,0)-f(l,0)+if(f(j,0)<f(l,0),1,0)
+
+    forall(j in 1..Tkk) z(j):=sum(i in 1..j) y(i) - floor(D(j)/C)
+
+    forall (j in 1..Tkk,l in 0..Tkk|f(l,0)>f(j,0))
+        X1(j,l):= s+r(j)+C*f(j,l)*z(j) >= C*f(l,0)+a(j)-a(l)
+    forall (j in 1..Tkk,l in 0..Tkk|f(l,0)<f(j,0))
+        X2(j,l):= r(j)+C*f(j,l)*z(j) >= a(j)-a(l)
+    forall (l in 1..Tkk)
+        X3(l):= s >= C*f(l,0)+a(0)-a(l)
+    forall (j in 1..Tkk)
+        X4(j):= s+r(j)+C*z(j) >= C*f(j,0)
+
+end-procedure
+
+!---------------------------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin, Constant Lower Bound      !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormWWULB(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    L : real,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+    declarations
+        Ts=1..NT
+        Ts0=0..NT
+        ws: array(Ts0,range) of mpvar
+        gs: array(Ts0,range) of real
+        ds: array(Ts0) of mpvar
+        XS,XW:array(Ts0) of linctr
+        XLKT:array(Ts0,Ts0) of linctr
+        XRKT:array(Ts0,Ts0,Ts0) of linctr
+        D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+
+
+    forall(k in Ts0,t in k+1..minlist(NT,k+Tk))
+        gs(k,t):=D(k+1,t)-L*(ceil(D(k+1,t)/L)-1)
+    forall(k in Ts0,t in maxlist(0,k-Tk)..k-1)
+        gs(k,t):=L*(floor(D(t+1,k)/L)+1)-D(t+1,k)
+    forall(k in Ts0)
+        gs(k,k):=L
+    forall(k in Ts0,t in maxlist(0,k-Tk)..minlist(NT,k+Tk)|gs(k,t)<>0) create(ws(k,t))
+
+
+    forall(k in Ts0) XS(k):=s(k)>=L*ds(k)+sum(i in maxlist(0,k-Tk)..minlist(NT,k+Tk))gs(k,i)*ws(k,i)
+    forall(k in Ts0) XW(k):=sum(i in maxlist(0,k-Tk)..minlist(NT,k+Tk)) ws(k,i)<=1
+    forall (k in Ts0,l in k+1..minlist(NT,k+Tk),t in k..l)
+        XRKT(k,l,t):= ds(k)+
+                   sum(i in maxlist(0,k-Tk)..minlist(NT,k+Tk)|gs(k,i)>=gs(k,t))ws(k,i) >=
+                   floor( (D(k+1,l)-gs(k,t))/L)+1+
+                   sum(i in k+1..l) (  floor( (D(k+1,i-1)-gs(k,t))/L) - floor( (D(k+1,l)-gs(k,t))/L) )*y(i)
+    forall (k in Ts0,t in maxlist(0,k-Tk)..k-1)
+        XLKT(k,t):= ds(k)+
+                   sum(i in maxlist(0,k-Tk)..minlist(NT,k+Tk)|gs(k,i)>=gs(k,t))ws(k,i) >=
+                   sum(i in t+1..k)y(i)-floor(D(t+1,k)/L)
+end-procedure
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!    Standard overlapping intervals              !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Wagner-Whitin, Constant Capacity and Backlogging  !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormWWCCB(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    D : array (range,range) of real,
+    C : real,
+    T1: integer,
+    TN: integer,
+    MC: integer)
+
+    declarations
+        T0=T1-1
+        Ts=T1..TN
+        Ts0=T0..TN
+    end-declarations
+
+    declarations
+        ws,wr: array(Ts0,Ts0) of mpvar
+        gs,gr: array(Ts0,Ts0) of real
+        ds,dr: array(Ts0) of mpvar
+        Tkk,b:integer
+        a:real
+        XS,XR,XWS,XWR:array(Ts0) of linctr
+        XLT:array(Ts,Ts,Ts0) of linctr
+    end-declarations
+
+    forall(k in Ts0,t in T0..k-1) gr(k,t):=D(t+1,k)-C*floor(D(t+1,k)/C)
+    forall(k in Ts0,t in T0..k-1) gs(k,t):=C*ceil(D(t+1,k)/C)-D(t+1,k)
+
+    forall(k in Ts0,t in k+1..TN) gs(k,t):=D(k+1,t)-C*floor(D(k+1,t)/C)
+    forall(k in Ts0,t in k+1..TN) gr(k,t):=C*ceil(D(k+1,t)/C)-D(k+1,t)
+
+    forall(k in Ts0) gs(k,k):=0
+    forall(k in Ts0) gr(k,k):=0
+
+    forall(k in T0..TN-1) XS(k):=s(k)>=C*ds(k)+sum(i in Ts0)gs(k,i)*ws(k,i)
+    forall(k in Ts) XR(k):=r(k)>=C*dr(k)+sum(i in Ts0)gr(k,i)*wr(k,i)
+    forall(k in T0..TN-1) XWS(k):=sum(i in Ts0) ws(k,i)<=1
+    forall(k in Ts) XWR(k):=sum(i in Ts0) wr(k,i)<=1
+    forall (k in Ts,l in k..TN,t in Ts0 | ceil( (D(k,l)-gr(l,t))/C) > 0)
+        XLT(k,l,t):=ds(k-1)+dr(l)+sum(i in k..l)y(i)+
+                     sum(i in Ts0|gs(k-1,i)>=gs(k-1,t))ws(k-1,i)+
+                     sum(i in Ts0|gr(l,i)>gr(l,t))wr(l,i)>=
+                     ceil( (D(k,l)-gr(l,t))/C)
+    !if MC=1 then
+    !forall (k in Ts,l in k..TN,t in Ts0) setmodcut(XLT(k,l,t))
+    !end-if
+
+end-procedure
+
+procedure XFormWWCCB(
+    s : array (range) of linctr,
+    r : array (range) of linctr,
+    y : array (range) of linctr,
+    d : array (range) of real,
+    C : real,
+    NT: integer,
+    Tk: integer,
+    MC: integer)
+
+    declarations
+      t1,t2:integer
+      D : array (range,range) of real
+    end-declarations
+
+    CumulDemand(d,D,NT)
+! modified 30/4/04: added if condition
+if(2 <=Tk and Tk <= NT) then
+    t1:=2-Tk
+    repeat
+      t1+=Tk-1
+      t2:=minlist(NT,t1+Tk+Tk-3)
+      XFormWWCCB(s,r,y,D,C,t1,t2,MC)
+    until (t2>=NT)
+end-if
+end-procedure
+
+! Lasdon-Terjung from Eppen and Martin 16/12/09
+!--------------------------------------------------
+procedure XFormLT(
+    x : array (range) of linctr,
+    z : array (range) of linctr,
+    d : array (range) of integer,
+    U: integer,
+    NT : integer,
+    Tk : integer,
+    MC : integer)
+
+   declarations
+	w: array (range,range,range,range) of mpvar
+	v: array (range,range,range) of mpvar
+	P:	array (0..NT,0..NT*U,0..U) of integer
+D : array (range,range) of integer
+end-declarations
+
+!v(t,x(1,t),x(t))
+!w(t,x(1,t),x(t),x(t+1))
+iCumulDemand(d,D,NT)
+
+P(0,0,0):=1
+create(v(0,0,0))
+v(0,0,0)=1
+forall(t in 1..NT) do
+forall(i1 in 0..minlist(D(1,NT),t*U),i2 in 0..U|P(t-1,i1,i2)=1) do
+forall(i3 in 0..U|i1+i3 >= D(1,t)) do
+if P(t,i1+i3,i3)=0 and i1 +i3 <= D(1,NT) then
+P(t,i1+i3,i3):=1
+create (v(t,i1+i3,i3))
+end-if
+create(w(t-1,i1,i2,i3))
+end-do
+end-do
+end-do
+
+forall(t in 0..NT,i1 in 0..D(1,NT),i2 in 0..U|P(t,i1,i2)=1) do
+
+if t<NT then
+bala(t,i1,i2):=v(t,i1,i2)=sum(i3 in 0..U|i1+i3 >= D(1,t)) w(t,i1,i2,i3)
+end-if
+
+if t>0 then
+balb(t,i1,i2):= v(t,i1,i2)=sum(i3 in 0..U)w(t-1,i1-i2,i3,i2)
+end-if
+end-do
+
+forall( t in 1..NT)
+x(t)=sum(i1 in 0..D(1,NT),i2 in 0..U)i2*v(t,i1,i2)
+
+forall( t in 1..NT)
+z(t)= sum(i1 in 0..D(1,NT),i2 in 0..U,i3 in i2..U)(i3-i2)*w(t-1,i1,i2,i3)
+
+    if MC=1 then
+    	forall(t in 0..NT,i1 in 0..D(1,NT),i2 in 0..U|P(t,i1,i2)=1) do
+    	setmodcut(bala(t,i1,i2))
+    	setmodcut(bala(t,i1,i2))
+    	end-do
+    end-if
+end-procedure
+!------------------------------
+! Created 9-10-2009
+!Valid for more general integer demands
+!We suppose that the demands are <= no of machines
+! Added  16/12/09
+!---------------------------------------------------
+procedure XFormDLSCCSCU(
+    s : array (range) of linctr,
+    y : array (range) of linctr,
+    z : array (range) of linctr,
+    d : array (range) of integer,
+    NT : integer,
+    Tk : integer,
+    MC: integer)
+
+
+    declarations
+        XWW: array (1..NT,range) of linctr
+        CUMD : array (range,range) of integer
+        ! Added 2/10/05
+        BA: array(range,range,range) of linctr  
+		IP: array(1..NT,1..NT) of integer
+end-declarations
+
+forall( u in 1..NT,t in u..NT)
+CUMD(u,t):=sum(v in u..t)d(v)
+
+forall(t in 1..NT,l in t..NT) do
+forall(k in t..l) do
+if(CUMD(t,k)>k-t+1) then
+IP(t,l):=1
+end-if
+end-do
+end-do
+
+!
+forall(p1 in 1..NT,t in 1..NT,l in t..NT| p1<l-t and
+	Tk>= l-t and d(l)>0 and floor(CUMD(t,l))= p1 and t<= NT+1-p1 and IP(t,l)=0)    
+  BA(p1,t,l):=
+   IF(t> 1,s(t-1),0)>= CUMD(t,l)-
+                   SUM(u in t..t+p1-1)y(u) -
+        SUM(u in t+1..t+p1-1)(CUMD(u,l)-p1+u-t)*z(u) -
+        SUM(u in t+p1..l|t+p1<= l)(CUMD(u,l))*z(u)
+
+ if MC >0 then
+forall(p1 in 1..NT,t in 1..NT,l in t..NT| p1<l-t and
+	Tk>= l-t and d(l)>0 and floor(CUMD(t,l))= p1 and t<= NT+1-p1 and IP(t,l)=0)    
+	setmodcut(BA(p1,t,l))
+end-if
+
+end-procedure
+
+
+!-------------------------------------------------------------
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  Extended Formulations                                !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+procedure XFormMIX(
+	S: linctr,
+	Z: array(range)of linctr,
+	b: array(range) of real,
+	N: integer,
+	Nk: integer)
+	
+declarations
+	del: array(0..N) of mpvar
+	mu: mpvar
+	f: array(0..N) of real
+	rs: linctr
+	rz: array(1..N) of linctr
+	rd: linctr
+end-declarations
+
+f(0):= 0
+forall(j in 1..N) f(j):= b(j)-floor(b(j))
+
+rs:= S = sum(j in 0..N)f(j)*del(j) + mu
+
+forall(k in 1..N)
+rz(k):= 	Z(k) >= sum(j in 0..N)ceil(b(k)-f(j))*del(j) - mu
+	
+rd:= sum(j in 0..N)del(j) = 1
+end-procedure
+
+!--------------------------------------------------------
+
+procedure XFormGMIX(
+	S: linctr,
+	R: array(range)of linctr,
+	Z: array(range)of linctr,
+	b: array(range) of real,
+	N: integer)
+	
+declarations
+	al: array(0..N) of mpvar
+	f: array(0..N) of real
+	con: array(1..N,0..N) of linctr
+	rc: array(1..N) of linctr
+end-declarations
+
+f(0):= 0
+forall(j in 1..N) f(j):= b(j)-floor(b(j))
+
+f(0):=0
+forall(i in 1..N) do
+f(i):=b(i)-floor(b(i))
+rc(i):= S>=f(i)+al(0)-al(i)
+end-do
+
+forall(j in 1..N,k in 0..N) do
+if f(j)<f(k) then
+con(j,k):= S+R(j)+(1+f(j)-f(k))*Z(j)-(1+f(j)-f(k))*floor(b(j))-f(k)>= al(j)-al(k)
+end-if
+if f(j)>f(k) then
+con(j,k):= R(j)+(f(j)-f(k))*(Z(j)-floor(b(j))) >= al(j)-al(k)
+end-if
+end-do
+
+end-procedure
+
+!------------------------------------------------------------------------
+!end-package

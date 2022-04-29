@@ -1,0 +1,16 @@
+[package]
+name = "tsptw-feasibility"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.51"
+array2d = "0.2.1"
+rand = "0.8.4"
+rand_core = "0.6.3"
+rand_xoshiro = "0.6.0"
+smallbitset = "0.5.1"
+structopt = "0.3.25"
+thiserror = "1.0.30"
